@@ -1,0 +1,151 @@
+---
+title: "Pre-Processing NO2 Data"
+linestretch: 1.5
+bibliography: bibliography.bib
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(zoo)
+library(stats)
+source("../R/utils.R")
+```
+
+
+## Introduction
+
+In this notebook investigates pre-processing steps which can be applied to NO2 concentration levels in oder to remove seasonal trends and a in 2018 for the four largest cities in Europe - London, Berlin, Madrid, and Rome. 
+
+```{r, warning=FALSE, echo=FALSE}
+setwd("../data/clean/NO2/")
+
+sample.cities <- list()
+
+sample.cities[["London"]] <- read.csv("GB/London/NO2_GB_London_2018.csv", row.names = 1)
+sample.cities[["Berlin"]] <- read.csv("DE/Berlin/NO2_DE_Berlin_2018.csv", row.names = 1)
+sample.cities[["Madrid"]] <- read.csv("ES/Madrid/NO2_ES_Madrid_2018.csv", row.names = 1)
+sample.cities[["Rome"]]   <- read.csv("IT/Roma/NO2_IT_Roma_2018.csv", row.names = 1)
+
+
+sample.cities <- Reduce(
+  function(df1, df2) merge(df1, df2, by = "Date", all.x = TRUE, all.y = TRUE), 
+  sample.cities
+  )
+
+rownames(sample.cities) <- sample.cities[,1]
+sample.cities <- sample.cities[,-1]
+names(sample.cities) <- c("London", "Berlin", "Madrid", "Rome")
+
+head(sample.cities)
+```
+
+## Summary of pre-processing steps
+
+Overall the following pre-processing steps will be applied to the cleaned data: 
+
+1. Square-root transform to bring the data back to the light tailed domain 
+2. Regression onto Fourier frequencies and indicators for weekends to eliminate trends; specifically frequencies corresponding to yearly and quarterly cycles will be used
+3. Whitening of de-trended data by saving residuals from the fit of an AR model 
+
+In practice the linear model in step 2 and 3 should be applied to training data which does not contain change points, and the prediction error on the data being examined for change points may be used in placed or empirical residuals. 
+
+## Common trends
+
+Seasonal trends in NO2 concentrations are well documented. With peaks generall occuring in Spring and Autumn. 
+
+
+```{r}
+par(mfrow = c(2,2))
+sample.cities <- sqrt(sample.cities)
+for (city in names(sample.cities)) plot.with.dates.axis(sample.cities[[city]], rownames(sample.cities), main = city)
+```
+
+Taking the square-root transform to bnring the data back to the light tailed domain as suggested in @cho2020multiple and plotting the time series together the seasonal component is somewhat clearer.
+
+```{r}
+df.plot.with.dates.axis(sample.cities, col = "grey", main = "sample cities after square-root transform")
+```
+
+## Removing trends
+
+The trends discussed above can be eliminated by regressing onto Fourier frequencies corresponding to yearly and quarterly cycles, as well as indicators marking weekends.
+
+```{r}
+days <- as.Date(rownames(sample.cities), format = "%Y-%m-%d")
+tt <- 1:length(days)
+
+sat <- ifelse(weekdays(days) == "Saturday", 1, 0)
+sun <- ifelse(weekdays(days) == "Sunday", 1, 0)
+
+s.qt <- sin(2*pi*tt/365/4)
+c.qt <- cos(2*pi*tt/365/4)
+s.yr <- sin(2*pi*tt/365)
+c.yr <- cos(2*pi*tt/365)
+
+trend.models <- list()
+
+for (city in names(sample.cities)) trend.models[[city]] <- lm(
+    sample.cities[[city]] ~ sat + sun + s.qt + c.qt + s.yr + c.yr
+    )
+```
+
+Visually the linear models seem to capture the seasonal component in the data well. 
+
+```{r, echo=FALSE}
+par(mfrow = c(2,2))
+for (city in names(sample.cities))
+{
+  plot.with.dates.axis(sample.cities[[city]], rownames(sample.cities), main = city)
+  lines(trend.models[[city]]$fitted.values, col = "red")
+}
+```
+
+Further, for all cities in the sample the majority of regression coefficients are strongly statistically significant. 
+
+```{r}
+summary(trend.models[["London"]])
+```
+
+Finally, there is no visually obvious trend component in the empirical residuals from the above regression. 
+
+```{r, echo=FALSE}
+detrended.data <- sample.cities
+for (city in names(sample.cities)) detrended.data[[city]] <- trend.models[[city]]$residuals
+df.plot.with.dates.axis(detrended.data, col = "grey", main = "sample cities after removing seasonal trends")
+```
+
+
+## Removing serial correlation
+
+Although the seasonal component has been eliminated, the data thus processed is still auto correlated. 
+
+```{r, echo=FALSE}
+acf(detrended.data)
+```
+
+The data may be whitened by fitting an AR model and saving the residuals. 
+
+```{r}
+ar.models <- list()
+for (city in names(sample.cities)) ar.models[[city]] <- ar(detrended.data[[city]], order.max = 3)
+```
+
+Whitening the data in this way seems to remove all series correlation. 
+
+```{r, echo=FALSE}
+whitened.data <- sample.cities
+for (city in names(sample.cities)) whitened.data[[city]] <- ar.models[[city]]$resid
+whitened.data <- whitened.data[-c(1:3),]
+
+acf(whitened.data)
+```
+
+Finally, the det-trended and whitened data is plotted below. 
+
+```{r}
+df.plot.with.dates.axis(whitened.data, col = "grey", main = "sample cities after trend removal and whitening")
+```

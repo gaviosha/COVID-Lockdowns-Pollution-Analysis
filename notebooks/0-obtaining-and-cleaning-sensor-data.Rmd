@@ -1,0 +1,29 @@
+---
+title: "Obtaining and Cleaning Pollutant Data"
+linestretch: 1.5
+bibliography: bibliography.bib
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Downloading sensor data
+
+To download NO2 and O3 concentrations for all European cities between the years 2018-2021 from the European Environmental Agency run `scrape_EU_air_quality_data.py` from the repository root. 
+
+## Cleaning sensor data
+
+To clean sensor data run the chunk below. Cleaned data is saved in `../data/clean`. Cleaning sensor does the following:  
+
+* At each sensor location hourly observations are used to obtain daily averages
+* From each city data is avereaged over sensor locations to obtain a time series of hourly city wide average
+
+```{r, eval = FALSE}
+source("../R/clean_sensor_data.R")
+setwd("../data")
+
+clean.pollutant.data(pollutant = "NO2")
+clean.pollutant.data(pollutant = "O3")
+```

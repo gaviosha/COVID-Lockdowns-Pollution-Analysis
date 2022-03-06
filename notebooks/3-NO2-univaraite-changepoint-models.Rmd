@@ -1,0 +1,142 @@
+---
+title: "Univaraite Change point Models for NO2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+```{r, echo=FALSE, warning=FALSE, echo=FALSE}
+library(zoo)
+library(wbs)
+
+library(not)
+library(IDetect)
+library(genlasso)
+library(strucchange)
+
+library(lpSolve)
+source("../R/univaraite_nsp.R")
+source("../R/utils.R")
+```
+
+
+```{r}
+source("../R/pre_process_clean_data.R")
+
+example.city <- c("Nice")
+
+xx <- stabilize.varaince.detrend(path.to.data = "../data/clean/NO2/", 
+                                 cities = example.city,
+                                 target.year = "2020", 
+                                 trend.fit.years = c("2019","2018"), 
+                                 show.prog.bar = FALSE
+                                 )
+
+head(xx$detrended)
+```
+
+
+## Piece wise constant mean models
+
+A piece wise constant signal is not appropriate for this data. Visually, the most plausible model for this time series in a pieicwise linear model with the  Trying to approximate the underlying signal with a pieicwise constant function leads to unnecessary changepoints being declared. Below is an example using the Wild Binary Segmentation algoriothm.
+
+```{r}
+wbs.obj <- wbs(xx$whitened[[example.city]])
+plot(wbs.obj)
+```
+
+
+## Piece wise linear mean models
+
+The data is much better described by pieicewise constant mean models...
+
+```{r}
+par(mfrow = c(2,2))
+
+all.pcwsLin.fits <- fit.pcwsLin(xx$whitened[[example.city]])
+
+for (ii in 1:length(all.pcwsLin.fits))
+{
+  plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = names(all.pcwsLin.fits)[ii])
+  lines(as.vector(all.pcwsLin.fits[[ii]]$fit), col = "red")
+  for (jj in all.pcwsLin.fits[[ii]]$cpt) abline(v = jj, col = "blue")
+}
+
+```
+
+### Narrowest significance pursuit
+
+NSP seems to be overly sensitive to local fluctuations in the noise level. With `example.city = "Bolzano"` NSP returns roughtly twice as many intervals as the number of changeopoint locations identified by NOT, ID, or strucchange. 
+
+```{r}
+nsp.obj <- nsp_poly(xx$whitened[[example.city]], deg = 1)
+
+plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = paste0("NSP intervals for ", example.city))
+draw_rects(nsp.obj, yrange = c(-50, 50), col = "red")
+```
+
+```{r}
+nsp.obj <- nsp_poly(xx$whitened[[example.city]], deg = 1)
+
+plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = paste0("NSP intervals for ", example.city))
+draw_rects(nsp.obj, yrange = c(-50, 50), col = "red")
+```
+
+NSP with time varying auto-regresson is less sensitive to local fluctuations in the noise level, and the intervals returned align more closely with changepoint loactions returned by competing methods. In the plot below I run NSP with time varying autoregression on detrended (but not pre-whitened data) and set the autoregression order to 3 as this was the maximum order of the AR mode used to pre-whiten the data. 
+
+```{r}
+nsp.tv.obj <- nsp_poly_ar(xx$detrended[[example.city]], deg = 1, ord = 3)
+not.obj <- not(xx$whitened[[example.city]], contrast = "pcwsLinMean")
+
+plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = paste0("NOT fit and NSP intervals for ", example.city))
+lines(predict(not.obj), col = "red")
+draw_rects(nsp.tv.obj, yrange = c(-40,40), col = "blue")
+```
+
+
+```{r}
+nsp.obj <- nsp_poly_selfnorm(xx$whitened[[example.city]], deg = 1)
+plot.ts(xx$whitened[[example.city]])
+draw_rects(nsp.obj, yrange = c(100,100))
+```
+
+
+However, the time varying autoregression makes the local model more flexible meaning the changepoint test is in turn less powerful. Below NSP with time varying autoregression is applied to the city of Nice, which was singled out in 
+
+```{r}
+
+example.city <- "Nice"
+
+yy <- stabilize.varaince.detrend(path.to.data = "../data/clean/NO2/", 
+                                 cities = example.city,
+                                 target.year = "2020", 
+                                 trend.fit.years = c("2019","2018"), 
+                                 show.prog.bar = FALSE
+                                 )
+
+plot.with.dates.axis(yy$detrended[[example.city]], rownames(yy$whitened), main = paste0(example.city))
+```
+
+
+```{r}
+nsp.obj <- nsp_poly(yy$whitened[[example.city]], deg = 1)
+
+plot.with.dates.axis(yy$whitened[[example.city]], rownames(yy$whitened), main = paste0("NSP intervals for ", example.city))
+draw_rects(nsp.obj, yrange = c(-50, 50), col = "red")
+```
+
+```{r}
+nsp.obj <- nsp_poly(yy$whitened[[example.city]], deg = 1, thresh = 3.676821 * 4)
+
+plot.with.dates.axis(yy$whitened[[example.city]], rownames(yy$whitened), main = paste0("NSP intervals for ", example.city))
+draw_rects(nsp.obj, yrange = c(-50, 50), col = "red")
+```
+
+```{r}
+nsp.obj
+```
+

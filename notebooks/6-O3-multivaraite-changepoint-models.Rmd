@@ -1,0 +1,162 @@
+---
+title: "Multivariate Change point Models for NO2"
+output: pdf_document
+---
+
+## Summary 
+
+```{r, warning=FALSE}
+library(InspectChangepoint)
+library(hdbinseg)
+library(changepoint.geo)
+```
+
+```{r}
+source("../R/univaraite_nsp.R")
+source("../R/utils.R")
+source("../R/pre_process_clean_data.R")
+source("../R/multivaraite_nsp/__init__.R")
+```
+
+
+Load all the data... 
+
+
+```{r}
+n.cities <- 400
+largest.cities <- read.csv("../data/countries_and_country_codes/largest_cities/largest_cities.csv", 
+                           row.names = 1
+                           )[,1][1:n.cities]
+
+xx <- stabilize.varaince.detrend(path.to.data = "../data/clean/O3/", 
+                                 cities = largest.cities,
+                                 target.year = "2020", 
+                                 trend.fit.years = "2018", 
+                                 show.prog.bar = TRUE
+                                 )
+
+```
+
+```{r}
+df.plot.with.dates.axis(xx$whitened, main = "some outliers caused by measurement error", col = "grey")
+```
+
+
+```{r}
+drop.cities <- c("Portsmouth", "Toulon", "Bratislava")
+xx$detrended <- xx$detrended[,!(names(xx$detrended) %in% drop.cities)]
+xx$whitened <- xx$whitened[,!(names(xx$whitened) %in% drop.cities)]
+
+df.plot.with.dates.axis(xx$whitened, main = "detrended O3 time series after removing outlier", col = "grey")
+```
+
+## Competing methods  
+
+Assuming a pieicewise constsant mean did not seem appropriate for the nuivariate time series. Nevertheless below I apply chanegpoint methods 
+
+```{r}
+other.methods <- fit.multivaraute.changepoints(t(xx$whitened))
+
+par(mfrow = c(2,2))
+
+for (ii in 1:length(other.methods))
+{
+  df.plot.with.dates.axis(xx$whitened, main = names(other.methods)[ii], col = "grey")
+  for (jj in other.methods[[ii]]) abline(v = jj, col = "blue")
+}
+```
+
+Of the three methods that return a sensible number of changepoints there is some disagreement between the changepoint locations. Most European countries implemented a  
+
+```{r}
+paste("geometric mapping:", paste(rownames(xx$whitened)[other.methods$`geometric mapping`], collapse = ", "))
+paste("double cusum:", paste(rownames(xx$whitened)[other.methods$`double cusum`], collapse = ", "))
+paste("sparsified bs:", paste(rownames(xx$whitened)[other.methods$`sparsified binary segmentation`], collapse = ", "))
+```
+
+apply to first differenced data...
+
+```{r}
+yy <- apply(xx$whitened, 2, diff)
+other.methods.diff <- fit.multivaraute.changepoints(t(yy))
+
+par(mfrow = c(2,2))
+
+for (ii in 1:length(other.methods.diff))
+{
+  df.plot.with.dates.axis(yy, main = names(other.methods.diff)[ii], col = "grey")
+  for (jj in other.methods.diff[[ii]]) abline(v = jj, col = "blue")
+}
+```
+
+## Narrowest Significance Pursuit
+
+```{r}
+thresh <- MC.thresh(n = dim(xx$whitened)[2], 
+                    tt = dim(xx$whitened)[1], 
+                    alpha = 0.05, 
+                    K = 500)
+```
+
+
+### NSP with pieiceise constant means
+
+```{r}
+m.nsp.pcwsConst <- panel_nsp(t(xx$whitened), thresh = thresh, deg = 0)
+```
+
+```{r}
+df.plot.with.dates.axis(xx$whitened, col = "grey", main = "NSP with piecewise constant means")
+draw_mnsp_rects(m.nsp.pcwsConst$nsp.out, c(-100,100))
+```
+
+```{r}
+m.nsp.pcwsConst
+```
+Try isolating only the L2 aggregation
+
+```{r}
+m.nsp.pcwsConst.L2 <- panel_nsp(t(xx$whitened), thresh = c(Inf, thresh[2]), deg = 0)
+```
+
+```{r}
+df.plot.with.dates.axis(xx$whitened, col = "grey", main = "(L2 aggregation only)")
+draw_mnsp_rects(m.nsp.pcwsConst.L2$nsp.out, c(-100,100))
+```
+
+```{r}
+m.nsp.pcwsConst.L2
+```
+
+
+### NSP with piecewise linear means
+
+```{r}
+m.nsp.pcwsLin <- panel_nsp(t(xx$whitened), thresh = thresh, deg = 1)
+```
+
+```{r}
+df.plot.with.dates.axis(xx$whitened, col = "grey", main = "nsp with piecewise linear means")
+draw_mnsp_rects(m.nsp.pcwsLin$nsp.out, c(-100,150))
+```
+
+```{r}
+m.nsp.pcwsLin
+```
+
+And again isolating only the L2 aggregations 
+
+```{r}
+m.nsp.pcwsLin.L2 <- panel_nsp(t(xx$whitened), thresh = c(Inf, thresh[2]), deg = 1)
+```
+
+```{r}
+df.plot.with.dates.axis(xx$whitened, col = "grey")
+draw_mnsp_rects(m.nsp.pcwsLin.L2$nsp.out, c(-100,150))
+```
+
+
+```{r}
+m.nsp.pcwsLin.L2
+```
+

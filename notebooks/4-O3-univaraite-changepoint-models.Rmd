@@ -1,0 +1,126 @@
+---
+title: "Univaraite Changepoint Models for NO3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+```{r, echo=FALSE, warning=FALSE}
+library(wbs)
+library(not)
+library(IDetect)
+library(lpSolve)
+source("../R/univaraite_nsp.R")
+source("../R/utils.R")
+```
+
+
+```{r, echo=FALSE, error=FALSE}
+library(zoo)
+
+library(wbs)
+
+library(not)
+library(IDetect)
+library(genlasso)
+library(strucchange)
+
+library(lpSolve)
+source("../R/univaraite_nsp.R")
+source("../R/utils.R")
+```
+
+
+```{r}
+source("../R/pre_process_clean_data.R")
+
+example.city <- "Bolzano"
+
+xx <- stabilize.varaince.detrend(path.to.data = "../data/clean/O3/", 
+                                 cities = example.city,
+                                 target.year = "2020", 
+                                 trend.fit.years = c("2019","2018"), 
+                                 show.prog.bar = FALSE
+                                 )
+
+head(xx$detrended)
+```
+
+```{r}
+plot.with.dates.axis(xx$whitened[[example.city]], 
+                     rownames(xx$whitened),
+                     main = paste0("detrended and whitened O3 data for ", example.city)
+                     )
+```
+
+## Piece wise constant mean models
+
+A piece wise constant signal is not appropriate for this data. Visually, the most plausible model for this time series in a pieicwise linear model with the  Trying to approximate the underlying signal with a pieicwise constant function leads to unnecessary changepoints being declared. Below is an example using the Wild Binary Segmentation algoriothm.
+
+```{r}
+wbs.obj <- wbs(xx$whitened[[example.city]])
+plot(wbs.obj)
+```
+
+
+## Piece wise linear mean models
+
+The data is much better described by pieicewise constant mean models...
+
+```{r}
+par(mfrow = c(2,2))
+
+all.pcwsLin.fits <- fit.pcwsLin(xx$whitened[[example.city]])
+
+for (ii in 1:length(all.pcwsLin.fits))
+{
+  plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = names(all.pcwsLin.fits)[ii])
+  lines(as.vector(all.pcwsLin.fits[[ii]]$fit), col = "red")
+  for (jj in all.pcwsLin.fits[[ii]]$cpt) abline(v = jj, col = "blue")
+}
+
+```
+
+### Narrowest significance pursuit
+
+NSP seems to be overly sensitive to local fluctuations in the noise level. With `example.city = "Bolzano"` NSP returns many times more intervals than changepoint locations returned by competing methods. 
+
+```{r}
+nsp.obj <- nsp_poly(xx$whitened[[example.city]], deg = 1)
+
+plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = paste0("NSP intervals for", example.city))
+draw_rects(nsp.obj, yrange = c(-30, 30), col = "red")
+```
+
+Running NSP with time varying autoregression, we see the procedure is still sensitive to local fluctuations in the noise level. The procedure misses the visually obvious change in slope around November 2020, but instead focuses on the high variance period between March and April. 
+
+```{r}
+nsp.tv.obj <- nsp_poly_ar(xx$detrended[[example.city]], deg = 1, ord = 3)
+not.obj <- not(xx$whitened[[example.city]], contrast = "pcwsLinMean")
+
+plot.with.dates.axis(xx$whitened[[example.city]], rownames(xx$whitened), main = paste0("NOT fit and NSP intervals for", example.city))
+lines(predict(not.obj), col = "red")
+draw_rects(nsp.tv.obj, yrange = c(-40,40), col = "blue")
+```
+
+```{r}
+nsp_poly_selfnorm(xx$whitened[[example.city]], deg = 1) -> nsp.obj
+```
+
+
+```{r}
+
+nsp.obj.1 <- nsp_poly(xx$whitened[[example.city]], deg = 1)
+
+nsp.obj.1
+
+```
+
+
+
+
+
